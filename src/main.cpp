@@ -165,7 +165,7 @@ bool ExtractAndSendValue(char *Datagram, String DsmrText, double ScaleValue, Str
   if (result)
   {
     double ReturnVal = getValue((char *)result, 25) / ScaleValue;
-    String Msg = "MQTT topic " + MqttTopicName + " payload " + String(ReturnVal, 3);
+    String Msg = "MQTT " + MqttTopicName + " " + String(ReturnVal, 3);
 
     mesh.SendMessage(Msg);
     return true;
