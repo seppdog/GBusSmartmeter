@@ -1,15 +1,14 @@
 #include "Arduino.h"
 #include "GBusHelpers.h"
 #include "GBusWifiMesh.h"
-#include <EEPROM.h>
-#include <WiFi.h>
-#include "driver/adc.h"
 #include "Tasker.h"
 #include <AES.h>
 #include <GCM.h>
+#include <ArduinoJson.h>
 
-#define FWVERSION "1.0"
-#define LogLevel ESP_LOG_NONE
+#define FWVERSION "2.23"
+#define MODULNAME "GBusSmartmeterSagem"
+#define LogLevel ESP_LOG_NONE //Never set to DEBUG! After that no OTA!!!
 
 MeshApp mesh;
 Tasker tasker;
@@ -37,9 +36,13 @@ void DecryptAndExtractValues(uint8_t *fullData, size_t dataSize);
 long getValue(char *buffer, int maxlen);
 bool ExtractAndSendValue(char *Datagram, String DsmrText, double ScaleValue, String MqttTopicName);
 
-void meshMessage(String msg, String from, int flag);
+void meshMessage(String msg, uint32_t from, int flag);
 void SentNodeInfo();
 void RequestData();
+void RootNotActiveWatchdog();
+void meshConnected();
+
+StaticJsonDocument<1000> SmartmeterJson;
 
 uint8_t ModulType = 255;
 
@@ -59,15 +62,17 @@ void setup()
   /**
    * @brief Set the log level for serial port printing.
    */
-  esp_log_level_set("*", ESP_LOG_NONE);
-  esp_log_level_set(TAG, ESP_LOG_NONE);
+  esp_log_level_set("*", LogLevel);
+  esp_log_level_set(TAG, LogLevel);
 
   MDF_LOGI("ModuleType: %u", ModulType);
 
   mesh.onMessage(meshMessage);
-  mesh.start(true);
+  mesh.onConnected(meshConnected);
+  mesh.start(false);
 
   tasker.setTimeout(RequestData, durationReqeust, 0);
+  tasker.setTimeout(RootNotActiveWatchdog, CheckForRootNodeIntervall);
 }
 
 void loop()
@@ -78,8 +83,6 @@ void loop()
   {
     digitalWrite(LED_BUILTIN, HIGH);
     MDF_LOGI("Data received");
-    // client.publish("gimpire/EspPowerMeterStromnetzGraz/debug", "Date recevied");
-    // client.publish("gimpire/EspPowerMeterStromnetzGraz/datareceived", "ON"); // You can activate the retain flag by setting the third parameter to true
 
     uint16_t bytesRead = 0;
     byte DsmrDataBuffer[DSMRDataSize];
@@ -95,6 +98,11 @@ void loop()
     digitalWrite(LED_BUILTIN, LOW);
     digitalWrite(RequestDataPin, LOW);
   }
+}
+
+void RootNotActiveWatchdog()
+{
+  ESP.restart();
 }
 
 void RequestData()
@@ -148,15 +156,20 @@ void DecryptAndExtractValues(uint8_t *fullData, size_t dataSize)
 
   // Serial.println("begin decode");
   ExtractAndSendValue((char *)plainText, "1-0:1.8.0", 1000, "ACTIVE_ENERGY_P_TOTAL");
-  ExtractAndSendValue((char *)plainText, "1-0:1.8.1", 1000, "ACTIVE_ENERGY_P_T1");
-  ExtractAndSendValue((char *)plainText, "1-0:1.8.2", 1000, "ACTIVE_ENERGY_P_T2");
+  //ExtractAndSendValue((char *)plainText, "1-0:1.8.1", 1000, "ACTIVE_ENERGY_P_T1");
+  //ExtractAndSendValue((char *)plainText, "1-0:1.8.2", 1000, "ACTIVE_ENERGY_P_T2");
   ExtractAndSendValue((char *)plainText, "1-0:1.7.0", 1, "ACTIVE_POWER_P");
 
   ExtractAndSendValue((char *)plainText, "1-0:2.8.0", 1000, "ACTIVE_ENERGY_N_TOTAL");
-  ExtractAndSendValue((char *)plainText, "1-0:2.8.1", 1000, "ACTIVE_ENERGY_N_T1");
-  ExtractAndSendValue((char *)plainText, "1-0:2.8.2", 1000, "ACTIVE_ENERGY_N_T2");
+  //ExtractAndSendValue((char *)plainText, "1-0:2.8.1", 1000, "ACTIVE_ENERGY_N_T1");
+  //ExtractAndSendValue((char *)plainText, "1-0:2.8.2", 1000, "ACTIVE_ENERGY_N_T2");
   ExtractAndSendValue((char *)plainText, "1-0:2.7.0", 1, "ACTIVE_POWER_N");
-  return;
+
+
+  String SmartmeterJsonString;
+  serializeJson(SmartmeterJson, SmartmeterJsonString);
+  String Msg = "MQTT values " + SmartmeterJsonString;
+  mesh.SendMessage(Msg);
 }
 
 bool ExtractAndSendValue(char *Datagram, String DsmrText, double ScaleValue, String MqttTopicName)
@@ -165,9 +178,12 @@ bool ExtractAndSendValue(char *Datagram, String DsmrText, double ScaleValue, Str
   if (result)
   {
     double ReturnVal = getValue((char *)result, 25) / ScaleValue;
-    String Msg = "MQTT " + MqttTopicName + " " + String(ReturnVal, 3);
 
-    mesh.SendMessage(Msg);
+    SmartmeterJson[MqttTopicName] = String(ReturnVal, 3);
+
+    //String Msg = "MQTT " + MqttTopicName + " " + String(ReturnVal, 3);
+
+    //mesh.SendMessage(Msg);
     return true;
   }
 
@@ -225,19 +241,21 @@ long getValue(char *buffer, int maxlen)
 
 void SentNodeInfo()
 {
-  // uint32_t OwnId = WiFi.macAddress();
-  wifi_power_t WifiPower;
-  WifiPower = WiFi.getTxPower();
+  mesh_addr_t bssid;
+  esp_err_t err = esp_mesh_get_parent_bssid(&bssid);
 
-  String Msg = "Name: GBusSmartmeterSagem NodeId:" + String(mesh.GetNodeId()) + " MAC:" + WiFi.macAddress() +
-               " Type:" + String(ModulType) + " FW: " + FWVERSION + " WifiPo:" + String(WifiPower);
-  // Serial.println("SentNodeInfo");
-  // Serial.println(Msg);
-
+  char MsgBuffer[300];
+  sprintf(MsgBuffer, "MQTT Info ModulName:%s,NodeID:%u,SubType:%u,MAC:%s,WifiStrength:%d,Parent:%s,FW:%s", MODULNAME, mesh.GetNodeId(), ModulType, WiFi.macAddress().c_str(), getWifiStrength(3), hextab_to_string(bssid.addr).c_str(), FWVERSION);
+  String Msg = String(MsgBuffer);
   mesh.SendMessage(Msg);
 }
 
-void meshMessage(String msg, String from, int flag)
+void meshConnected()
+{
+  SentNodeInfo();
+}
+
+void meshMessage(String msg, uint32_t from, int flag)
 {
   MDF_LOGD("meshMessage payload:%s, from:%u", msg.c_str(), from);
 
@@ -252,21 +270,14 @@ void meshMessage(String msg, String from, int flag)
   else if (msg.startsWith("I'm Root!"))
   {
    MDF_LOGI("Gateway hold alive received");
-    // LastCheckForRootNodeMillis = millis();
+   tasker.cancel(RootNotActiveWatchdog);
+   tasker.setTimeout(RootNotActiveWatchdog, CheckForRootNodeIntervall);
   }
   else if (Type == "Config")
   {
-    Serial.printf("Config\n");
-    String ConfigType = getValue(msg, ' ', 1);
-    // Config ModulType 2|4|6
-    if (ConfigType == "WifiPower")
-    {
-      String Type = getValue(msg, ' ', 2);
-      Serial.printf("WifiPower: %s\n", Type.c_str());
-      EEPROM.write(2, (uint8_t)Type.toInt());
-      EEPROM.commit();
-      ESP.restart();
-    }
+   MDF_LOGI("Config\n");
+   String ConfigType = getValue(msg, ' ', 1);
+   // Config ModulType 2|4|6
   }
   else if (Type == "GetNodeInfo")
   {
