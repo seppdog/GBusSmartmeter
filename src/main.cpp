@@ -180,10 +180,6 @@ bool ExtractAndSendValue(char *Datagram, String DsmrText, double ScaleValue, Str
     double ReturnVal = getValue((char *)result, 25) / ScaleValue;
 
     SmartmeterJson[MqttTopicName] = String(ReturnVal, 3);
-
-    //String Msg = "MQTT " + MqttTopicName + " " + String(ReturnVal, 3);
-
-    //mesh.SendMessage(Msg);
     return true;
   }
 
