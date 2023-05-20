@@ -6,9 +6,9 @@
 #include <GCM.h>
 #include <ArduinoJson.h>
 
-#define FWVERSION "2.23"
+#define FWVERSION "2.24"
 #define MODULNAME "GBusSmartmeterSagem"
-#define LogLevel ESP_LOG_NONE //Never set to DEBUG! After that no OTA!!!
+#define LogLevel ESP_LOG_NONE // Never set to DEBUG! After that no OTA!!!
 
 MeshApp mesh;
 Tasker tasker;
@@ -116,13 +116,13 @@ void printHex(uint8_t num)
   char hexCar[2];
 
   sprintf(hexCar, "%02X", num);
-  //Serial.print(hexCar);
+  // Serial.print(hexCar);
 }
 
 void DecryptAndExtractValues(uint8_t *fullData, size_t dataSize)
 {
-  //Serial.println(dataSize);
-  // client.publish("gimpire/EspPowerMeterStromnetzGraz/debug", String((int)dataSize));
+  // Serial.println(dataSize);
+  //  client.publish("gimpire/EspPowerMeterStromnetzGraz/debug", String((int)dataSize));
 
   // Check Header
   if (fullData[0] != 0xDB)
@@ -154,17 +154,17 @@ void DecryptAndExtractValues(uint8_t *fullData, size_t dataSize)
     Serial.printf("%c", plainText[i]);
   }*/
 
+  SmartmeterJson.garbageCollect();
   // Serial.println("begin decode");
   ExtractAndSendValue((char *)plainText, "1-0:1.8.0", 1000, "ACTIVE_ENERGY_P_TOTAL");
-  //ExtractAndSendValue((char *)plainText, "1-0:1.8.1", 1000, "ACTIVE_ENERGY_P_T1");
-  //ExtractAndSendValue((char *)plainText, "1-0:1.8.2", 1000, "ACTIVE_ENERGY_P_T2");
+  // ExtractAndSendValue((char *)plainText, "1-0:1.8.1", 1000, "ACTIVE_ENERGY_P_T1");
+  // ExtractAndSendValue((char *)plainText, "1-0:1.8.2", 1000, "ACTIVE_ENERGY_P_T2");
   ExtractAndSendValue((char *)plainText, "1-0:1.7.0", 1, "ACTIVE_POWER_P");
 
   ExtractAndSendValue((char *)plainText, "1-0:2.8.0", 1000, "ACTIVE_ENERGY_N_TOTAL");
-  //ExtractAndSendValue((char *)plainText, "1-0:2.8.1", 1000, "ACTIVE_ENERGY_N_T1");
-  //ExtractAndSendValue((char *)plainText, "1-0:2.8.2", 1000, "ACTIVE_ENERGY_N_T2");
+  // ExtractAndSendValue((char *)plainText, "1-0:2.8.1", 1000, "ACTIVE_ENERGY_N_T1");
+  // ExtractAndSendValue((char *)plainText, "1-0:2.8.2", 1000, "ACTIVE_ENERGY_N_T2");
   ExtractAndSendValue((char *)plainText, "1-0:2.7.0", 1, "ACTIVE_POWER_N");
-
 
   String SmartmeterJsonString;
   serializeJson(SmartmeterJson, SmartmeterJsonString);
@@ -179,7 +179,7 @@ bool ExtractAndSendValue(char *Datagram, String DsmrText, double ScaleValue, Str
   {
     double ReturnVal = getValue((char *)result, 25) / ScaleValue;
 
-    SmartmeterJson[MqttTopicName] = String(ReturnVal, 3);
+    SmartmeterJson[MqttTopicName] = String(ReturnVal);
     return true;
   }
 
@@ -265,15 +265,15 @@ void meshMessage(String msg, uint32_t from, int flag)
   }
   else if (msg.startsWith("I'm Root!"))
   {
-   MDF_LOGI("Gateway hold alive received");
-   tasker.cancel(RootNotActiveWatchdog);
-   tasker.setTimeout(RootNotActiveWatchdog, CheckForRootNodeIntervall);
+    MDF_LOGI("Gateway hold alive received");
+    tasker.cancel(RootNotActiveWatchdog);
+    tasker.setTimeout(RootNotActiveWatchdog, CheckForRootNodeIntervall);
   }
   else if (Type == "Config")
   {
-   MDF_LOGI("Config\n");
-   String ConfigType = getValue(msg, ' ', 1);
-   // Config ModulType 2|4|6
+    MDF_LOGI("Config\n");
+    String ConfigType = getValue(msg, ' ', 1);
+    // Config ModulType 2|4|6
   }
   else if (Type == "GetNodeInfo")
   {
